@@ -27,13 +27,46 @@ using std::vector;
 // ---------------------------------------------------------------- model
 
 enum RuleType { RT_ENDS, RT_STARTS, RT_CONTAINS, RT_REGEX, RT_FOLDER, RT_ANY, RT_COUNT };
-enum ShiftMode { SH_ANY, SH_HELD, SH_NOT, SH_COUNT };
 
 static const wchar_t *TYPE_KEYS[RT_COUNT] = {L"endswith", L"startswith", L"contains", L"regex", L"folder", L"any"};
 static const wchar_t *TYPE_LABELS[RT_COUNT] = {L"Ends with", L"Starts with", L"Contains", L"Matches regex",
                                                L"Is in folder (incl. subfolders)", L"Any file"};
-static const wchar_t *SHIFT_KEYS[SH_COUNT] = {L"any", L"held", L"notheld"};
-static const wchar_t *SHIFT_LABELS[SH_COUNT] = {L"Doesn't matter", L"Must be held", L"Must not be held"};
+
+// Modifier keys: a rule either ignores them (KEYS_ANY) or requires exactly this set to be held
+// (0 = no modifier key held).
+enum { KEY_SHIFT = 1, KEY_CTRL = 2, KEY_ALT = 4, KEYS_ANY = -1 };
+static const int KEY_CHOICES[] = {KEYS_ANY, 0, KEY_SHIFT, KEY_CTRL, KEY_ALT, KEY_CTRL | KEY_SHIFT,
+                                  KEY_ALT | KEY_SHIFT, KEY_CTRL | KEY_ALT, KEY_CTRL | KEY_ALT | KEY_SHIFT};
+
+static wstring modsLabel(int m) {
+    if (m == KEYS_ANY) return L"Doesn't matter";
+    if (m == 0) return L"None held";
+    wstring s;
+    if (m & KEY_CTRL) s += L"Ctrl+";
+    if (m & KEY_ALT) s += L"Alt+";
+    if (m & KEY_SHIFT) s += L"Shift+";
+    s.pop_back();
+    return s;
+}
+
+static wstring modsKey(int m) {  // ini spelling: any, none, ctrl+alt+shift
+    if (m == KEYS_ANY) return L"any";
+    if (m == 0) return L"none";
+    wstring s;
+    if (m & KEY_CTRL) s += L"ctrl+";
+    if (m & KEY_ALT) s += L"alt+";
+    if (m & KEY_SHIFT) s += L"shift+";
+    s.pop_back();
+    return s;
+}
+
+static int heldMods() {
+    int m = 0;
+    if (GetAsyncKeyState(VK_SHIFT) & 0x8000) m |= KEY_SHIFT;
+    if (GetAsyncKeyState(VK_CONTROL) & 0x8000) m |= KEY_CTRL;
+    if (GetAsyncKeyState(VK_MENU) & 0x8000) m |= KEY_ALT;
+    return m;
+}
 
 struct Program {
     wstring name, path, args;
@@ -44,7 +77,7 @@ struct Rule {
     RuleType type = RT_ENDS;
     wstring pattern;
     bool fullPath = false;
-    ShiftMode shift = SH_ANY;
+    int mods = KEYS_ANY;
     wstring program;
 };
 
@@ -103,7 +136,7 @@ static Config defaultConfig() {
     c.programs.push_back({L"Snapmaker Orca", L"C:\\Program Files\\Snapmaker_Orca\\snapmaker-orca.exe", L"%*"});
     Rule shift;
     shift.type = RT_ANY;
-    shift.shift = SH_HELD;
+    shift.mods = KEY_SHIFT;
     shift.program = L"Snapmaker Orca";
     Rule u1;
     u1.type = RT_ENDS;
@@ -173,6 +206,23 @@ static int keyIndex(const wchar_t *const *keys, int n, const wstring &v, int def
     return def;
 }
 
+static int parseMods(const wstring &v) {
+    wstring s = lower(trim(v));
+    if (s.empty() || s == L"any") return KEYS_ANY;
+    int m = 0;
+    size_t pos = 0;
+    while (pos <= s.size()) {
+        size_t e = s.find(L'+', pos);
+        if (e == wstring::npos) e = s.size();
+        wstring k = trim(s.substr(pos, e - pos));
+        if (k == L"shift") m |= KEY_SHIFT;
+        else if (k == L"ctrl" || k == L"control") m |= KEY_CTRL;
+        else if (k == L"alt") m |= KEY_ALT;
+        pos = e + 1;
+    }
+    return m;  // "none" (or anything unrecognised) = no modifier held
+}
+
 static Config parseConfig(const wstring &text) {
     Config c;
     enum { NONE, PROG, RULE, SETTINGS } sec = NONE;
@@ -214,7 +264,11 @@ static Config parseConfig(const wstring &text) {
             else if (key == L"type") r.type = (RuleType)keyIndex(TYPE_KEYS, RT_COUNT, val, RT_ENDS);
             else if (key == L"pattern") r.pattern = val;
             else if (key == L"fullpath") r.fullPath = trim(val) == L"1";
-            else if (key == L"shift") r.shift = (ShiftMode)keyIndex(SHIFT_KEYS, SH_COUNT, val, SH_ANY);
+            else if (key == L"keys") r.mods = parseMods(val);
+            else if (key == L"shift") {  // v1.1 format
+                wstring v = lower(trim(val));
+                r.mods = v == L"held" ? KEY_SHIFT : v == L"notheld" ? 0 : KEYS_ANY;
+            }
             else if (key == L"program") r.program = trim(val);
         } else if (sec == SETTINGS && key == L"default") {
             c.defaultProgram = trim(val);
@@ -227,7 +281,8 @@ static wstring serialize(const Config &c) {
     wstring s =
         L"; printer_fork configuration. Rules are checked top to bottom; the first match wins.\r\n"
         L"; Easiest to edit in the settings window: run printer_fork.exe without a file.\r\n"
-        L"; Rule types: endswith, startswith, contains, regex, folder, any. shift: any, held, notheld.\r\n"
+        L"; Rule types: endswith, startswith, contains, regex, folder, any.\r\n"
+        L"; keys: any (ignore modifier keys), none (no modifier held), or an exact combination like ctrl+shift.\r\n"
         L"; Program args: %* = arguments as received, \"%f\" = the opened file.\r\n\r\n";
     s += L"[settings]\r\ndefault=" + c.defaultProgram + L"\r\n";
     for (auto &p : c.programs)
@@ -240,8 +295,7 @@ static wstring serialize(const Config &c) {
         s += L"\r\npattern=" + r.pattern;
         s += L"\r\nfullpath=";
         s += r.fullPath ? L"1" : L"0";
-        s += L"\r\nshift=";
-        s += SHIFT_KEYS[r.shift];
+        s += L"\r\nkeys=" + modsKey(r.mods);
         s += L"\r\nprogram=" + r.program + L"\r\n";
     }
     return s;
@@ -301,9 +355,9 @@ static bool inFolder(const wstring &file, const wstring &folder) {
     return f.size() > d.size() && f.compare(0, d.size(), d) == 0 && f[d.size()] == L'\\';
 }
 
-static bool ruleMatches(const Rule &r, const wstring &file, bool shift) {
+static bool ruleMatches(const Rule &r, const wstring &file, int mods) {
     if (!r.enabled) return false;
-    if ((r.shift == SH_HELD && !shift) || (r.shift == SH_NOT && shift)) return false;
+    if (r.mods != KEYS_ANY && r.mods != mods) return false;
     if (r.type == RT_ANY) return true;
     if (r.type == RT_FOLDER) return inFolder(file, r.pattern);
     wstring subject = r.fullPath ? fullPath(file) : baseName(file);
@@ -323,9 +377,9 @@ static bool ruleMatches(const Rule &r, const wstring &file, bool shift) {
     }
 }
 
-static int firstMatch(const Config &c, const wstring &file, bool shift) {
+static int firstMatch(const Config &c, const wstring &file, int mods) {
     for (size_t i = 0; i < c.rules.size(); i++)
-        if (ruleMatches(c.rules[i], file, shift)) return (int)i;
+        if (ruleMatches(c.rules[i], file, mods)) return (int)i;
     return -1;
 }
 
@@ -623,7 +677,15 @@ static INT_PTR CALLBACK RuleProc(HWND h, UINT m, WPARAM w, LPARAM l) {
             comboFill(h, IDC_RTYPE, vector<wstring>(TYPE_LABELS, TYPE_LABELS + RT_COUNT), e->r.type);
             SetDlgItemTextW(h, IDC_RPATTERN, e->r.pattern.c_str());
             CheckDlgButton(h, IDC_RFULL, e->r.fullPath ? BST_CHECKED : BST_UNCHECKED);
-            comboFill(h, IDC_RSHIFT, vector<wstring>(SHIFT_LABELS, SHIFT_LABELS + SH_COUNT), e->r.shift);
+            {
+                vector<wstring> labels;
+                int sel = 0;
+                for (int i = 0; i < (int)ARRAYSIZE(KEY_CHOICES); i++) {
+                    labels.push_back(modsLabel(KEY_CHOICES[i]));
+                    if (KEY_CHOICES[i] == e->r.mods) sel = i;
+                }
+                comboFill(h, IDC_RSHIFT, labels, sel);
+            }
             comboFill(h, IDC_RPROG, programNames(*e->cfg), programIndex(*e->cfg, e->r.program));
             ruleDlgUpdate(h);
             return TRUE;
@@ -644,7 +706,8 @@ static INT_PTR CALLBACK RuleProc(HWND h, UINT m, WPARAM w, LPARAM l) {
                     r.type = (RuleType)comboSel(h, IDC_RTYPE);
                     r.pattern = getText(h, IDC_RPATTERN);
                     r.fullPath = IsDlgButtonChecked(h, IDC_RFULL) == BST_CHECKED;
-                    r.shift = (ShiftMode)comboSel(h, IDC_RSHIFT);
+                    int mi = comboSel(h, IDC_RSHIFT);
+                    r.mods = KEY_CHOICES[mi >= 0 && mi < (int)ARRAYSIZE(KEY_CHOICES) ? mi : 0];
                     int pi = comboSel(h, IDC_RPROG);
                     if (r.type == RT_ANY) r.pattern.clear(), r.fullPath = false;
                     if (r.type == RT_FOLDER) r.pattern = trim(r.pattern, L" \t\""), r.fullPath = false;
@@ -712,8 +775,8 @@ static void refreshRules(HWND h, int sel) {
     for (size_t i = 0; i < c.rules.size(); i++) {
         const Rule &r = c.rules[i];
         wstring prog = r.program + (findProgram(c, r.program) ? L"" : L" (missing)");
-        wstring shift = r.shift == SH_HELD ? L"held" : r.shift == SH_NOT ? L"not held" : L"\u2013";
-        addRow(lv, (int)i, {std::to_wstring(i + 1), describeRule(r), shift, prog});
+        wstring keys = r.mods == KEYS_ANY ? wstring(L"\u2013") : r.mods == 0 ? wstring(L"none") : modsLabel(r.mods);
+        addRow(lv, (int)i, {std::to_wstring(i + 1), describeRule(r), keys, prog});
         ListView_SetCheckState(lv, (int)i, r.enabled);
     }
     selectRow(lv, sel);
@@ -727,8 +790,10 @@ static void updateTest(HWND h) {
     if (path.empty()) {
         s = L"Enter or browse to a file to see which program would open it.";
     } else {
-        bool shift = IsDlgButtonChecked(h, IDC_TESTSHIFT) == BST_CHECKED;
-        int i = firstMatch(c, path, shift);
+        int mods = (IsDlgButtonChecked(h, IDC_TESTSHIFT) == BST_CHECKED ? KEY_SHIFT : 0) |
+                   (IsDlgButtonChecked(h, IDC_TESTCTRL) == BST_CHECKED ? KEY_CTRL : 0) |
+                   (IsDlgButtonChecked(h, IDC_TESTALT) == BST_CHECKED ? KEY_ALT : 0);
+        int i = firstMatch(c, path, mods);
         wstring prog = i >= 0 ? c.rules[i].program : c.defaultProgram;
         s = L"\u2192 Opens in " + (prog.empty() ? wstring(L"(nothing)") : prog) + L"   (" +
             (i >= 0 ? L"rule " + std::to_wstring(i + 1) + L": " + describeRule(c.rules[i])
@@ -755,7 +820,7 @@ static INT_PTR CALLBACK MainProc(HWND h, UINT m, WPARAM w, LPARAM l) {
             SendMessageW(h, WM_SETICON, ICON_BIG, (LPARAM)big);
             SendMessageW(h, WM_SETICON, ICON_SMALL, (LPARAM)sm);
             initList(h, IDC_PROGS, {L"Name", L"Program", L"Arguments"}, false);
-            initList(h, IDC_RULES, {L"#", L"Condition", L"Shift", L"Open with"}, true);
+            initList(h, IDC_RULES, {L"#", L"Condition", L"Keys", L"Open with"}, true);
             fitAllColumns(h);
             refreshAll(h, -1, -1);
             wstring where = g_cfgPath.empty() ? exeDirIni() + L"  (not saved yet)" : g_cfgPath;
@@ -858,6 +923,8 @@ static INT_PTR CALLBACK MainProc(HWND h, UINT m, WPARAM w, LPARAM l) {
                     if (HIWORD(w) == EN_CHANGE) updateTest(h);
                     return TRUE;
                 case IDC_TESTSHIFT:
+                case IDC_TESTCTRL:
+                case IDC_TESTALT:
                     updateTest(h);
                     return TRUE;
                 case IDC_TESTBROWSE: {
@@ -931,8 +998,8 @@ static int runSettings(const Config &cfg) {
 // ---------------------------------------------------------------- entry
 
 int WINAPI wWinMain(HINSTANCE hi, HINSTANCE, LPWSTR, int) {
-    // Read Shift first, while the user is still holding it.
-    bool shift = (GetAsyncKeyState(VK_SHIFT) & 0x8000) != 0;
+    // Read the modifier keys first, while the user is still holding them.
+    int mods = heldMods();
     g_inst = hi;
 
     int argc = 0;
@@ -942,7 +1009,7 @@ int WINAPI wWinMain(HINSTANCE hi, HINSTANCE, LPWSTR, int) {
 
     if (!settings) {
         wstring file = argv[1];
-        int i = firstMatch(cfg, file, shift);
+        int i = firstMatch(cfg, file, mods);
         const Program *p = findProgram(cfg, i >= 0 ? cfg.rules[i].program : cfg.defaultProgram);
         if (p) return launch(*p, file, argsAfterExe(GetCommandLineW())) ? 0 : 1;
         if (msg(nullptr, L"No program is set up to open\n" + file + L"\n\nOpen the printer_fork settings?",

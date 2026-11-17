@@ -23,6 +23,8 @@
 #define IDC_TESTBROWSE  1031
 #define IDC_TESTSHIFT   1032
 #define IDC_TESTRESULT  1033
+#define IDC_TESTCTRL    1034
+#define IDC_TESTALT     1035
 #define IDC_CFGPATH     1040
 
 #define IDC_PNAME       1101
@@ -38,3 +40,4 @@
 #define IDC_RFULL       1206
 #define IDC_RSHIFT      1207
 #define IDC_RPROG       1208
+#define IDC_RKEYHINT    1209
