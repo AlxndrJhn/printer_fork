@@ -1,16 +1,92 @@
+#include <windows.h>
+#include <commctrl.h>
+#include "resource.h"
+
+// The manifest is built separately (manifest.rc) to replace MinGW's default-manifest.o.
 1 ICON "printer_fork.ico"
 
+IDD_MAIN DIALOGEX 0, 0, 420, 334
+STYLE DS_MODALFRAME | DS_CENTER | DS_SETFONT | WS_POPUP | WS_CAPTION | WS_SYSMENU | WS_MINIMIZEBOX
+EXSTYLE WS_EX_APPWINDOW
+CAPTION "printer_fork settings"
+FONT 9, "Segoe UI", 400, 0, 1
+BEGIN
+    GROUPBOX        "Programs", IDC_STATIC, 7, 4, 406, 94
+    CONTROL         "", IDC_PROGS, "SysListView32", LVS_REPORT | LVS_SINGLESEL | LVS_SHOWSELALWAYS | LVS_NOSORTHEADER | WS_BORDER | WS_TABSTOP, 14, 16, 330, 76
+    PUSHBUTTON      "&Add...", IDC_PADD, 350, 16, 56, 14
+    PUSHBUTTON      "&Edit...", IDC_PEDIT, 350, 33, 56, 14
+    PUSHBUTTON      "&Remove", IDC_PDEL, 350, 50, 56, 14
+
+    GROUPBOX        "Rules (checked top to bottom, the first match wins)", IDC_STATIC, 7, 102, 406, 132
+    CONTROL         "", IDC_RULES, "SysListView32", LVS_REPORT | LVS_SINGLESEL | LVS_SHOWSELALWAYS | LVS_NOSORTHEADER | WS_BORDER | WS_TABSTOP, 14, 114, 330, 114
+    PUSHBUTTON      "A&dd...", IDC_RADD, 350, 114, 56, 14
+    PUSHBUTTON      "Ed&it...", IDC_REDIT, 350, 131, 56, 14
+    PUSHBUTTON      "Re&move", IDC_RDEL, 350, 148, 56, 14
+    PUSHBUTTON      "Move &up", IDC_RUP, 350, 174, 56, 14
+    PUSHBUTTON      "Move do&wn", IDC_RDOWN, 350, 191, 56, 14
+
+    LTEXT           "If no rule matches, open with:", IDC_STATIC, 7, 242, 110, 8
+    COMBOBOX        IDC_DEFAULT, 118, 240, 150, 120, CBS_DROPDOWNLIST | WS_VSCROLL | WS_TABSTOP
+
+    GROUPBOX        "Try it", IDC_STATIC, 7, 258, 406, 48
+    EDITTEXT        IDC_TESTPATH, 14, 270, 276, 14, ES_AUTOHSCROLL
+    PUSHBUTTON      "&Browse...", IDC_TESTBROWSE, 294, 270, 50, 14
+    AUTOCHECKBOX    "&Shift held", IDC_TESTSHIFT, 350, 272, 58, 10
+    LTEXT           "", IDC_TESTRESULT, 14, 289, 392, 10, SS_ENDELLIPSIS | SS_NOPREFIX
+
+    LTEXT           "", IDC_CFGPATH, 7, 316, 290, 10, SS_PATHELLIPSIS | SS_NOPREFIX
+    DEFPUSHBUTTON   "Save", IDOK, 302, 313, 54, 14
+    PUSHBUTTON      "Cancel", IDCANCEL, 359, 313, 54, 14
+END
+
+IDD_PROGRAM DIALOGEX 0, 0, 300, 98
+STYLE DS_MODALFRAME | DS_CENTER | DS_SETFONT | WS_POPUP | WS_CAPTION | WS_SYSMENU
+CAPTION "Program"
+FONT 9, "Segoe UI", 400, 0, 1
+BEGIN
+    LTEXT           "Name:", IDC_STATIC, 7, 9, 42, 8
+    EDITTEXT        IDC_PNAME, 52, 7, 241, 14, ES_AUTOHSCROLL
+    LTEXT           "Program:", IDC_STATIC, 7, 29, 42, 8
+    EDITTEXT        IDC_PPATH, 52, 27, 186, 14, ES_AUTOHSCROLL
+    PUSHBUTTON      "&Browse...", IDC_PBROWSE, 242, 27, 51, 14
+    LTEXT           "Arguments:", IDC_STATIC, 7, 49, 42, 8
+    EDITTEXT        IDC_PARGS, 52, 47, 241, 14, ES_AUTOHSCROLL
+    LTEXT           "%* = arguments exactly as received,  ""%f"" = the opened file", IDC_STATIC, 52, 64, 241, 8, SS_NOPREFIX
+    DEFPUSHBUTTON   "OK", IDOK, 185, 78, 52, 14
+    PUSHBUTTON      "Cancel", IDCANCEL, 241, 78, 52, 14
+END
+
+IDD_RULE DIALOGEX 0, 0, 300, 138
+STYLE DS_MODALFRAME | DS_CENTER | DS_SETFONT | WS_POPUP | WS_CAPTION | WS_SYSMENU
+CAPTION "Rule"
+FONT 9, "Segoe UI", 400, 0, 1
+BEGIN
+    AUTOCHECKBOX    "&Enabled", IDC_RENABLED, 7, 7, 80, 10
+    LTEXT           "When the file:", IDC_STATIC, 7, 25, 50, 8
+    COMBOBOX        IDC_RTYPE, 60, 23, 233, 120, CBS_DROPDOWNLIST | WS_VSCROLL | WS_TABSTOP
+    LTEXT           "Text:", IDC_RPATLABEL, 7, 45, 50, 8
+    EDITTEXT        IDC_RPATTERN, 60, 43, 178, 14, ES_AUTOHSCROLL
+    PUSHBUTTON      "&Browse...", IDC_RBROWSE, 242, 43, 51, 14
+    AUTOCHECKBOX    "Match against the &full path instead of just the file name", IDC_RFULL, 60, 61, 233, 10
+    LTEXT           "Shift key:", IDC_STATIC, 7, 79, 50, 8
+    COMBOBOX        IDC_RSHIFT, 60, 77, 233, 80, CBS_DROPDOWNLIST | WS_VSCROLL | WS_TABSTOP
+    LTEXT           "Open with:", IDC_STATIC, 7, 97, 50, 8
+    COMBOBOX        IDC_RPROG, 60, 95, 233, 120, CBS_DROPDOWNLIST | WS_VSCROLL | WS_TABSTOP
+    DEFPUSHBUTTON   "OK", IDOK, 185, 117, 52, 14
+    PUSHBUTTON      "Cancel", IDCANCEL, 241, 117, 52, 14
+END
+
 1 VERSIONINFO
-FILEVERSION 1,0,0,0
-PRODUCTVERSION 1,0,0,0
+FILEVERSION 1,1,0,0
+PRODUCTVERSION 1,1,0,0
 BEGIN
   BLOCK "StringFileInfo"
   BEGIN
     BLOCK "040904B0"
     BEGIN
-      VALUE "FileDescription", "printer_fork - opens 3MF in Bambu Studio or Snapmaker Orca"
+      VALUE "FileDescription", "printer_fork - opens files in the right program by rules"
       VALUE "ProductName", "printer_fork"
-      VALUE "FileVersion", "1.0.0"
+      VALUE "FileVersion", "1.1.0"
       VALUE "OriginalFilename", "printer_fork.exe"
     END
   END

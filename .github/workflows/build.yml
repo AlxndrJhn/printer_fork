@@ -1,0 +1,44 @@
+name: Build
+
+on:
+  push:
+    branches: ["**"]
+  pull_request:
+  workflow_dispatch:
+  workflow_call:
+
+jobs:
+  build:
+    runs-on: windows-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Install MinGW-w64 (UCRT64)
+        id: msys2
+        uses: msys2/setup-msys2@v2
+        with:
+          msystem: UCRT64
+          update: false
+          install: mingw-w64-ucrt-x86_64-gcc mingw-w64-ucrt-x86_64-binutils
+
+      - name: Put the toolchain on PATH
+        shell: pwsh
+        run: Add-Content $env:GITHUB_PATH "${{ steps.msys2.outputs.msys2-location }}\ucrt64\bin"
+
+      - name: Build
+        shell: cmd
+        run: build.cmd
+
+      - name: Check the binary
+        shell: pwsh
+        run: |
+          $exe = Get-Item printer_fork.exe
+          "printer_fork.exe: $($exe.Length) bytes"
+          $text = [Text.Encoding]::ASCII.GetString([IO.File]::ReadAllBytes($exe.FullName))
+          if (-not $text.Contains('6595b64144ccf1df')) { throw 'application manifest missing from printer_fork.exe' }
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: printer_fork
+          path: printer_fork.exe
+          if-no-files-found: error

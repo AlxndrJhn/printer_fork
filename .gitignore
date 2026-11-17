@@ -1,1 +1,7 @@
+# build outputs (CI builds and releases the exe)
+*.exe
 *.res
+build/
+
+# personal rules, written by the settings window
+printer_fork.ini

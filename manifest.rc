@@ -1,0 +1,3 @@
+// Compiled to build/default-manifest.o so it replaces the MinGW default manifest (see build.cmd).
+LANGUAGE 0, 0
+1 24 "printer_fork.manifest"
